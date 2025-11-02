@@ -3,7 +3,6 @@ import os
 import streamlit as st
 import time
 
-# Add project root so text2text can be imported
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from text2text.rag import chat, create_first_prompt
@@ -11,13 +10,11 @@ from auth import ensure_auth
 
 st.set_page_config(page_title="KarginGPT", page_icon="🤙🏼", layout="wide")
 
-# ---- AUTH ----
 auth_status, name, username, config, authenticator = ensure_auth()
 
 if auth_status:
     st.title("KarginGPT 🤙🏼")
 
-    # Sidebar for user info + logout + chat list
     with st.sidebar:
         st.caption(f"Բարի գալուստ, **{username}** 👋🏼")
         st.markdown("---")
@@ -26,7 +23,6 @@ if auth_status:
         st.markdown("---")
 
         st.header("📚 Զրույցներ")
-
         if "conversations" not in st.session_state:
             st.session_state.conversations = {}
             st.session_state.selected_chat = None
@@ -47,13 +43,12 @@ if auth_status:
                 "Ընտրիր զրույցը",
                 chat_names,
                 index=chat_names.index(st.session_state.selected_chat)
-                if st.session_state.selected_chat in chat_names
-                else 0,
+                if st.session_state.selected_chat in chat_names else 0,
                 key="chat_selector",
             )
             st.session_state.selected_chat = selected
 
-    # ---- MAIN CHAT AREA ----
+    # MAIN CHAT AREA
     if not st.session_state.selected_chat:
         new_chat_name = "Զրույց 1"
         st.session_state.conversations[new_chat_name] = []
@@ -71,10 +66,7 @@ if auth_status:
     user_input = st.chat_input("Գրիր մի բան…")
 
     if user_input:
-        if not messages:
-            prompt = create_first_prompt(user_input)
-        else:
-            prompt = user_input
+        prompt = create_first_prompt(user_input) if not messages else user_input
 
         messages.append({"role": "user", "content": user_input})
         with st.chat_message("user"):
@@ -93,5 +85,4 @@ if auth_status:
         messages.append({"role": "assistant", "content": response.text})
 
 else:
-    # Login/register page already rendered inside auth.py
-    st.stop()
+    st.stop()  # Auth UI already rendered in auth.py

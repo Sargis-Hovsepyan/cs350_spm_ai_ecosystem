@@ -1,89 +1,110 @@
 import streamlit as st
-import sqlite3
-import os
-import hashlib
+from sqlalchemy import create_engine, Column, String, Boolean
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
+import bcrypt
 import re
-
-DB_PATH = os.path.join(os.path.dirname(__file__), "users.db")
-
+import os
+import uuid
 
 # ---------- DB SETUP ----------
+DB_PATH = os.path.join(os.path.dirname(__file__), "kargin_users.db")
+
+# Delete existing DB if it exists (fresh start)
+if os.path.exists(DB_PATH):
+    os.remove(DB_PATH)
+
+engine = create_engine(f"sqlite:///{DB_PATH}", connect_args={"check_same_thread": False})
+SessionLocal = sessionmaker(bind=engine)
+Base = declarative_base()
+
+
+class User(Base):
+    __tablename__ = "users"
+    id = Column(String, primary_key=True)  # unique ID for DB
+    username = Column(String, nullable=False)
+    password_hash = Column(String, nullable=False)
+    email = Column(String, unique=True, nullable=False)
+    verified = Column(Boolean, default=True)
+
+
 def init():
-    """Initialize users table if it doesn't exist."""
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            username TEXT PRIMARY KEY,
-            password_hash TEXT NOT NULL,
-            email TEXT,
-            verified INTEGER DEFAULT 1
-        )
-    """)
-    conn.commit()
-    conn.close()
+    """Create tables if not exist."""
+    Base.metadata.create_all(engine)
 
 
+# ---------- PASSWORD & AUTH ----------
 def hash_password(password: str) -> str:
-    """Return SHA256 hash of password."""
-    return hashlib.sha256(password.encode()).hexdigest()
+    salt = bcrypt.gensalt()
+    return bcrypt.hashpw(password.encode(), salt).decode()
 
 
-def validate_password_strength(password: str) -> tuple[bool, list[str]]:
-    """Check all password constraints at once."""
+def verify_password(password: str, hashed: str) -> bool:
+    return bcrypt.checkpw(password.encode(), hashed.encode())
+
+
+def validate_password(password: str) -> tuple[bool, list[str]]:
+    """Check all constraints at once"""
     errors = []
-
     if len(password) < 8:
-        errors.append("• Պետք է ունենա առնվազն 8 նիշ։")
+        errors.append("• Պետք է ունենա առնվազն 8 նիշ")
     if not re.search(r"[A-Z]", password):
-        errors.append("• Պետք է պարունակի մեծատառ։")
+        errors.append("• Պետք է պարունակի մեծատառ")
     if not re.search(r"[a-z]", password):
-        errors.append("• Պետք է պարունակի փոքրատառ։")
+        errors.append("• Պետք է պարունակի փոքրատառ")
     if not re.search(r"\d", password):
-        errors.append("• Պետք է պարունակի թիվ։")
+        errors.append("• Պետք է պարունակի թիվ")
     if not re.search(r"[@$!%*?&#]", password):
-        errors.append("• Պետք է պարունակի հատուկ նիշ (օր.` @, #, $):")
-
-    if errors:
-        return False, errors
-    return True, []
+        errors.append("• Պետք է պարունակի հատուկ նիշ (օր.` @, #, $)")
+    return (len(errors) == 0, errors)
 
 
-def register_user(username, password, email):
-    """Add new user to DB with validation."""
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
+def validate_email(email: str) -> bool:
+    """Simple regex to validate email format"""
+    if not email:
+        return False
+    pattern = r"^[\w\.-]+@[\w\.-]+\.\w+$"
+    return re.match(pattern, email) is not None
 
-    c.execute("SELECT username FROM users WHERE username = ?", (username,))
-    if c.fetchone():
-        conn.close()
-        return False, ["Օգտանունն արդեն գրանցված է։"]
 
-    valid, errors = validate_password_strength(password)
+def register_user(username: str, password: str, email: str):
+    session = SessionLocal()
+
+    # Only email must be unique
+    existing_email = session.query(User).filter_by(email=email).first()
+    if existing_email:
+        session.close()
+        return False, ["Այս էլ. փոստը արդեն օգտագործված է։"]
+
+    if not validate_email(email):
+        session.close()
+        return False, ["Մուտքագրված էլ. փոստը վավեր չէ։"]
+
+    valid, errors = validate_password(password)
     if not valid:
-        conn.close()
+        session.close()
         return False, errors
 
-    c.execute(
-        "INSERT INTO users (username, password_hash, email, verified) VALUES (?, ?, ?, ?)",
-        (username, hash_password(password), email, 1),
-    )
-    conn.commit()
-    conn.close()
+    hashed = hash_password(password)
+
+    # Generate a unique ID for DB
+    user = User(id=str(uuid.uuid4()), username=username, password_hash=hashed, email=email)
+    session.add(user)
+    session.commit()
+    session.close()
     return True, ["Գրանցումը հաջողությամբ ավարտվեց։"]
 
 
-def verify_user(username, password):
-    """Verify credentials."""
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT password_hash FROM users WHERE username = ?", (username,))
-    row = c.fetchone()
-    conn.close()
-
-    if not row:
+def verify_user(username_or_email: str, password: str) -> bool:
+    """Verify by username OR email"""
+    session = SessionLocal()
+    user = session.query(User).filter_by(username=username_or_email).first()
+    if not user:
+        user = session.query(User).filter_by(email=username_or_email).first()
+    session.close()
+    if not user:
         return False
-    return row[0] == hash_password(password)
+    return verify_password(password, user.password_hash)
 
 
 def logout_user():
@@ -91,36 +112,33 @@ def logout_user():
     st.session_state["username"] = None
 
 
-# ---------- STREAMLIT AUTH UI ----------
+# ---------- STREAMLIT UI ----------
 def show_auth_ui():
-    """Render Armenian login/register UI on the main page."""
     st.title("Բարի գալուստ KarginGPT 🤙🏼")
-
     st.write("Խնդրում ենք մուտք գործել կամ գրանցվել՝ շարունակելու համար։")
+
     tab_login, tab_register = st.tabs(["🔑 Մուտք գործել", "📝 Գրանցվել"])
 
-    # ---------------------- LOGIN TAB ----------------------
+    # -------- LOGIN TAB --------
     with tab_login:
-        username = st.text_input("Օգտանուն", key="login_username")
-        password = st.text_input("Գաղտնաբառ", type="password", key="login_password")
-
-        if st.button("Մուտք գործել", key="login_button"):
-            if verify_user(username, password):
+        login_input = st.text_input("Օգտանուն կամ էլ. փոստ", key="login_input")
+        login_password = st.text_input("Գաղտնաբառ", type="password", key="login_password")
+        if st.button("Մուտք գործել", key="login_btn"):
+            if verify_user(login_input, login_password):
                 st.session_state["authenticated"] = True
-                st.session_state["username"] = username
+                st.session_state["username"] = login_input
                 st.success("Դու հաջողությամբ մուտք գործեցիր։")
                 st.rerun()
             else:
                 st.error("Սխալ օգտանուն կամ գաղտնաբառ։")
 
-    # ---------------------- REGISTER TAB ----------------------
+    # -------- REGISTER TAB --------
     with tab_register:
-        username = st.text_input("Նոր օգտանուն", key="register_username")
-        email = st.text_input("Էլ. փոստ", key="register_email")
-        password = st.text_input("Գաղտնաբառ", type="password", key="register_password")
-        confirm = st.text_input("Կրկնիր գաղտնաբառը", type="password", key="register_confirm")
+        reg_username = st.text_input("Օգտանուն", key="register_username")
+        reg_email = st.text_input("Էլ. փոստ", key="register_email")
+        reg_password = st.text_input("Գաղտնաբառ", type="password", key="register_password")
+        reg_confirm = st.text_input("Կրկնիր գաղտնաբառը", type="password", key="register_confirm")
 
-        # Show password rules
         st.info(
             """
             **Գաղտնաբառի պահանջներ**
@@ -132,14 +150,14 @@ def show_auth_ui():
             """
         )
 
-        if st.button("Գրանցվել", key="register_button"):
-            if password != confirm:
+        if st.button("Գրանցվել", key="register_btn"):
+            if reg_password != reg_confirm:
                 st.error("Գաղտնաբառերը չեն համընկնում։")
             else:
-                success, messages = register_user(username, password, email)
+                success, messages = register_user(reg_username, reg_password, reg_email)
                 if success:
                     st.session_state["authenticated"] = True
-                    st.session_state["username"] = username
+                    st.session_state["username"] = reg_username
                     st.success("Գրանցումը հաջողությամբ ավարտվեց։ Դուք ավտոմատ կերպով մուտք գործեցիք։")
                     st.rerun()
                 else:
@@ -147,17 +165,13 @@ def show_auth_ui():
                         st.error(msg)
 
 
-# ---------- MAIN ENTRY ----------
+# ---------- ENTRY POINT ----------
 def ensure_auth():
-    """
-    Entry point for app.py.
-    Returns (auth_status, name, username, config, authenticator)
-    """
     init()
 
     class DummyAuthenticator:
         def logout_button(self):
-            if st.sidebar.button("Դուրս գալ", key="logout_button"):
+            if st.sidebar.button("Դուրս գալ", key="logout_btn"):
                 logout_user()
                 st.rerun()
 
