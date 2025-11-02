@@ -1,0 +1,36 @@
+cookie:
+  expiry_days: 7
+  key: $2b$12$9eOr6wgE4a85bjzZoirg1OqutyNp7cjv7FcmelFLVFM9rJTABSMLu
+  name: kargin_auth
+credentials:
+  usernames:
+    admin@example.com:
+      email: admin@example.com
+      name: Admin
+      password: $2b$12$vVaMvT3/goKPnFiBddwoa.fcrneYyWPcCYHHKUwpHqZoYngvE767S
+    davitkhalatyan2003@gmail.com:
+      email: davitkhalatyan2003@gmail.com
+      name: Davit Khalatyan
+      password: $2b$12$0fnSTqwQhudXTXb5Lhe3l.iOofciTCVdiSA0.uVhYz1M./UVsIhDG
+    jbond007@gov.com:
+      email: jbond007@gov.com
+      name: James
+      password: $2b$12$DCiLPobNqcrwJib3.HYsyuCaK7DLn2V5ic9NnqrNUaM/WxGoaPNXO
+    jmith@gmail.com:
+      email: jmith@gmail.com
+      name: John
+      password: $2b$12$0iD/W4LmaAKlwp/kosYRiO9T2f.M3msh5/H7ddufK5TUoyunIT7US
+    johnsmith@gmail.com:
+      email: johnsmith@gmail.com
+      name: John
+      password: $2b$12$cETGZOHtkE80jzWVlZe28eSucN/kWJad2ZsHWzXSm3ls8lgM37ESu
+    johnsmmith@gmail.com:
+      email: johnsmmith@gmail.com
+      name: John
+      password: $2b$12$.hpYUl6lUEfhnHqgZvSGhOhz9C3nD6dUIfztw1eMei52ek1QYIhhG
+preauthorized:
+  emails:
+  - admin@example.com
+registration:
+  enabled: true
+  require_preauthorization: true
